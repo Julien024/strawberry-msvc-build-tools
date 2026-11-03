@@ -244,12 +244,31 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
+          # Le strawberry.nsi de Strawberry reference des noms de DLL ICU en dur (ex: icudt78.dll)
+          # alors que les dependances sont compilees avec une autre version d'ICU (ex: icudt79.dll).
+          function Fix-NsisIcu {
+            $nsi = "${{env.build_path}}/strawberry/build/strawberry.nsi"
+            if (-not (Test-Path $nsi)) { Write-Host "strawberry.nsi introuvable, rien a corriger"; return }
+            $bin = "${{env.prefix_path_backslash}}\bin"
+            $text = [System.IO.File]::ReadAllText($nsi)
+            $new = $text
+            foreach ($p in @("icudt", "icuin", "icuuc")) {
+              $dll = Get-ChildItem $bin -Filter "$p*.dll" | Where-Object { $_.Name -match "^$p[0-9]+\.dll$" } | Select-Object -First 1
+              if ($dll) { $new = [regex]::Replace($new, "$p[0-9]+\.dll", $dll.Name) }
+            }
+            if ($new -ne $text) {
+              [System.IO.File]::WriteAllText($nsi, $new, (New-Object System.Text.UTF8Encoding($false)))
+              Write-Host "strawberry.nsi corrige: noms des DLL ICU alignes sur ceux installes"
+            }
+          }
           $ok = $false
           for ($i = 1; $i -le 3; $i++) {
             Write-Host "===== Tentative $i / 3 ====="
             ./StrawberryMSVCBuild.ps1 -build_type ${{matrix.buildtype}} -arch ${{matrix.arch}} -downloads_path "${{env.downloads_path}}" -build_path "${{env.build_path}}" -build_strawberry $true
-            if ($LASTEXITCODE -eq 0) { $ok = $true; break }
-            Write-Host "Tentative $i echouee (code $LASTEXITCODE), nouvelle tentative dans 30 s..."
+            $code = $LASTEXITCODE
+            if ($code -eq 0) { $ok = $true; break }
+            Fix-NsisIcu
+            Write-Host "Tentative $i echouee (code $code), nouvelle tentative dans 30 s..."
             Start-Sleep -Seconds 30
           }
           if (-not $ok) { exit 1 }
