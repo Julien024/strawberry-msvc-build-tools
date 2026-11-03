@@ -223,6 +223,24 @@ jobs:
           restore-keys: |
             strawberry-deps-x86_64-release-
 
+      - name: Pre-telecharger speex (miroir GitHub, gitlab.xiph.org renvoie des 504)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = "Stop"
+          $line = Select-String -Path "StrawberryPackageVersions.txt" -Pattern '^\s*speex_version\s*=\s*(.+)$' | Select-Object -First 1
+          if (-not $line) { throw "speex_version introuvable dans StrawberryPackageVersions.txt" }
+          $v = $line.Matches[0].Groups[1].Value.Trim()
+          New-Item -ItemType Directory -Force "${{env.downloads_path}}" | Out-Null
+          $dest = "${{env.downloads_path}}/speex-Speex-$v.tar.gz"
+          $url = "https://github.com/xiph/speex/archive/refs/tags/Speex-$v.tar.gz"
+          Write-Host "Telechargement: $url"
+          Invoke-WebRequest -UseBasicParsing $url -OutFile $dest
+          $size = (Get-Item $dest).Length
+          Write-Host "Taille: $size octets"
+          if ($size -lt 100000) { Remove-Item $dest -Force; throw "Fichier speex trop petit, supprime" }
+          & tar -tzf $dest | Select-Object -First 3
+
       - name: Build
         shell: pwsh
         run: |
