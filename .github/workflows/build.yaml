@@ -191,9 +191,46 @@ jobs:
           choco install nsis -y --no-progress
           "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
+      - name: Install NSIS plugin LockedList
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $page = Invoke-WebRequest -UseBasicParsing "https://nsis.sourceforge.io/LockedList_plug-in"
+          $link = ($page.Links | Where-Object { $_.href -match 'LockedList[^/]*\.zip$' } | Select-Object -First 1).href
+          if (-not $link) { throw "Lien de telechargement LockedList.zip introuvable sur la page du plugin" }
+          if ($link.StartsWith("//")) { $link = "https:" + $link }
+          elseif ($link.StartsWith("/")) { $link = "https://nsis.sourceforge.io" + $link }
+          Write-Host "Telechargement: $link"
+          $zip = Join-Path $env:RUNNER_TEMP "LockedList.zip"
+          $dir = Join-Path $env:RUNNER_TEMP "LockedList"
+          Invoke-WebRequest -UseBasicParsing $link -OutFile $zip
+          Expand-Archive $zip $dir -Force
+          $nsis = "C:\Program Files (x86)\NSIS\Plugins"
+          $dll32 = Get-ChildItem $dir -Recurse -Filter "LockedList.dll" | Where-Object { $_.FullName -match "x86-unicode" } | Select-Object -First 1
+          $dll64 = Get-ChildItem $dir -Recurse -Filter "LockedList64.dll" | Select-Object -First 1
+          if (-not $dll32) { throw "LockedList.dll (x86-unicode) absent du zip" }
+          New-Item -ItemType Directory -Force "$nsis\x86-unicode" | Out-Null
+          Copy-Item $dll32.FullName "$nsis\x86-unicode\LockedList.dll" -Force
+          if ($dll64) { Copy-Item $dll64.FullName "$nsis\LockedList64.dll" -Force }
+          if (-not (Test-Path "$nsis\x86-unicode\LockedList.dll")) { throw "Installation de LockedList.dll echouee" }
+          Write-Host "LockedList installe"
+
+      - name: Restore cache dependances
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{env.prefix_path_backslash}}
+          key: strawberry-deps-x86_64-release-v1
+
       - name: Build
         shell: pwsh
         run: ./StrawberryMSVCBuild.ps1 -build_type ${{matrix.buildtype}} -arch ${{matrix.arch}} -downloads_path "${{env.downloads_path}}" -build_path "${{env.build_path}}" -build_strawberry $true
+
+      - name: Save cache dependances
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{env.prefix_path_backslash}}
+          key: strawberry-deps-x86_64-release-v1
 
       - name: Upload installateur
         uses: actions/upload-artifact@v4
